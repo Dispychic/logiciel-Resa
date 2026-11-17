@@ -1,0 +1,4 @@
+node_modules/
+.bridge-build/
+.DS_Store
+*.local.json

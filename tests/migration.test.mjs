@@ -1,0 +1,13 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {webcrypto,randomUUID} from 'node:crypto';
+import {prepareLegacy,mergePlan,records} from '../migration.mjs';
+if(!globalThis.crypto)globalThis.crypto=webcrypto;
+const state=rows=>({data:{'2026-11-16':rows},history:{},tableSettings:{}});
+const booking=(id,name='Homonyme')=>({id,name,phone:'0600000000',table:'1'});
+test('UUID conservés, alias ajouté, aucune mutation de la sauvegarde',async()=>{const id=randomUUID(),s=state([booking(id)]),p=await prepareLegacy(s);assert.equal(p.data['2026-11-16'][0].reservation_id,id);assert.equal(s.data['2026-11-16'][0].reservation_id,undefined);});
+test('identifiant ancien converti de façon stable indépendamment du nom',async()=>{const a=await prepareLegacy(state([booking('legacy-42','Avant')])),b=await prepareLegacy(state([booking('legacy-42','Après')]));assert.equal([...records(a).keys()][0],[...records(b).keys()][0]);});
+test('absence et duplication d’identifiant bloquent la migration',async()=>{await assert.rejects(prepareLegacy(state([booking('')])),/aucun identifiant/);await assert.rejects(prepareLegacy(state([booking('42'),booking('42')])),/dupliqué/);});
+test('deux homonymes restent deux réservations indépendantes',()=>{const a=booking(randomUUID()),b=booking(randomUUID());const p=mergePlan(state([a]),state([b]));assert.equal(p.conflicts.length,0);assert.equal(records(p.payload).size,2);});
+test('conflit sur le même UUID exige un choix explicite et conserve les autres réservations',()=>{const id=randomUUID(),other=randomUUID(),local=state([booking(id,'Local'),booking(other)]),remote=state([booking(id,'Serveur')]);const plan=mergePlan(local,remote);assert.equal(plan.conflicts.length,1);const resolved=mergePlan(local,remote,{data:{}},{[id]:'local'});assert.equal(records(resolved.payload).size,2);assert.equal(records(resolved.payload).get(id).booking.name,'Local');});
+test('fusion de trois versions conserve les corrections indépendantes et les suppressions',()=>{const a=booking(randomUUID()),b=booking(randomUUID());const base=state([a,b]),local=state([{...a,name:'Corrigé'},b]),remote=state([a]);const p=mergePlan(local,remote,base);assert.equal(p.conflicts.length,0);assert.equal(records(p.payload).size,1);assert.equal(records(p.payload).get(a.id).booking.name,'Corrigé');});
+
+test('une ancienne copie ne ressuscite pas silencieusement une réservation supprimée',()=>{const id=randomUUID(),local=state([booking(id)]),remote=state([]),deleted=[{reservation_id:id,visit_date:'2026-11-16',booking:{...booking(id),deleted:true}}];assert.equal(mergePlan(local,remote,{data:{}},{},deleted).conflicts.length,1);assert.equal(records(mergePlan(local,remote,{data:{}},{[id]:'remote'},deleted).payload).size,0);});

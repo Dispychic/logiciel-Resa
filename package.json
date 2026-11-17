@@ -1,0 +1,1 @@
+{"name":"dipsy-tables-bridge","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.mjs","build":"node build.mjs"},"dependencies":{"@supabase/supabase-js":"2.119.0"},"devDependencies":{"vite":"8.3.8"}}
